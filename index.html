@@ -156,21 +156,26 @@ textarea::placeholder { color:#B0A090; }
 .sync-dot.error  { background:#C44A4A; }
 @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
-/* DAY MODAL */
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:flex; align-items:flex-end; justify-content:center; animation:fadeIn 0.2s ease; }
-.modal-overlay.hidden { display:none; }
-@keyframes fadeIn { from{opacity:0} to{opacity:1} }
-.modal { background:var(--cream); border-radius:20px 20px 0 0; width:100%; max-width:480px; max-height:85vh; overflow-y:auto; padding-bottom:32px; animation:slideUp 0.3s ease; }
-@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
-.modal-header { position:sticky; top:0; background:var(--text); color:var(--cream); padding:16px 20px; display:flex; align-items:center; justify-content:space-between; border-radius:20px 20px 0 0; }
-.modal-date { font-family:'Playfair Display',serif; font-size:1rem; font-weight:700; text-transform:capitalize; }
-.modal-close { background:none; border:none; color:var(--cream); font-size:1.4rem; cursor:pointer; opacity:0.7; line-height:1; padding:0 4px; }
-.modal-close:hover { opacity:1; }
-.modal-score { font-size:0.75rem; color:#B0A090; margin-top:2px; }
-.modal-meals { padding:16px; display:flex; flex-direction:column; gap:10px; }
-.modal-empty { text-align:center; padding:40px 24px; color:var(--text-light); font-size:0.88rem; }
-.cal-day { cursor:pointer; transition:background 0.15s; }
+
+/* SELECTED DAY */
+.cal-day:not(.empty) { cursor:pointer; transition:background 0.15s; }
 .cal-day:not(.empty):hover { background:var(--warm); }
+.cal-day.selected .day-num { background:var(--terracota); color:white; border-radius:50%; }
+.viewing-bar { margin:0 16px; background:var(--terracota); color:white; border-radius:12px; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; font-size:0.82rem; font-weight:500; }
+.viewing-bar button { background:none; border:none; color:white; font-size:0.8rem; cursor:pointer; opacity:0.8; text-decoration:underline; }
+.viewing-bar button:hover { opacity:1; }
+
+/* WORKOUT */
+.cal-day-dots { display:flex; gap:3px; justify-content:center; flex-wrap:wrap; margin-top:1px; }
+.dot-food { width:18px; height:14px; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:0.58rem; font-weight:700; }
+.dot-workout { width:18px; height:14px; border-radius:3px; background:#E8DEFF; color:#6A3AAA; display:flex; align-items:center; justify-content:center; font-size:0.68rem; }
+.add-workout-section { margin:16px; background:var(--card); border:1px solid var(--border); border-radius:16px; overflow:hidden; }
+.workout-list { padding:0 16px 12px; display:flex; flex-direction:column; gap:8px; }
+.workout-card { background:var(--warm); border-radius:12px; padding:12px 14px; display:flex; align-items:center; justify-content:space-between; }
+.workout-card .wk-info { display:flex; align-items:center; gap:10px; }
+.workout-card .wk-emoji { font-size:1.3rem; }
+.workout-card .wk-label { font-size:0.88rem; font-weight:500; color:var(--text); }
+.workout-card .wk-date { font-size:0.7rem; color:var(--text-light); margin-top:1px; }
 </style>
 </head>
 <body>
@@ -217,7 +222,13 @@ textarea::placeholder { color:#B0A090; }
   <div class="goal-note" id="prot-note">Meta: ~100–120g/día para tu objetivo</div>
 </div>
 
-<div class="section-title">Comidas del día</div>
+
+<div class="viewing-bar" id="viewing-bar" style="display:none">
+  <span id="viewing-label">📅 Viendo: </span>
+  <button onclick="backToToday()">← Volver a hoy</button>
+</div>
+
+<div class="section-title" id="meals-section-title">Comidas del día</div>
 <div class="meals-list" id="meals-list">
   <div class="empty-state">
     <div class="big-emoji">⏳</div>
@@ -263,6 +274,32 @@ textarea::placeholder { color:#B0A090; }
     </div>
     <button class="btn-add" id="btn-add" onclick="addMeal()">Calcular y añadir ✨</button>
   </div>
+</div>
+
+
+<div class="section-title">Entrenamiento de hoy</div>
+<div class="add-workout-section">
+  <div class="add-header" onclick="toggleWorkout()">
+    <span>💪 Añadir entrenamiento</span>
+    <span id="workout-toggle-icon">▼</span>
+  </div>
+  <div class="add-body" id="workout-body">
+    <div class="form-row">
+      <label class="form-label">Tipo de entrenamiento</label>
+      <select id="workout-type">
+        <option value="Pierna - Cuádriceps + Gemelo">🦵 Pierna — Cuádriceps + Gemelo</option>
+        <option value="Glúteo + Femoral">🍑 Glúteo + Femoral</option>
+        <option value="Espalda + Bíceps">💪 Espalda + Bíceps</option>
+        <option value="Pecho + Tríceps">🏋️ Pecho + Tríceps</option>
+        <option value="Funcional">⚡ Funcional</option>
+        <option value="Pilates">🧘 Pilates</option>
+        <option value="Cardio">🏃 Cardio</option>
+        <option value="Otro">🔥 Otro</option>
+      </select>
+    </div>
+    <button class="btn-add" onclick="addWorkout()">Guardar entrenamiento 💪</button>
+  </div>
+  <div class="workout-list" id="workout-list"></div>
 </div>
 
 <div class="section-title">Calendario mensual</div>
@@ -601,8 +638,14 @@ function renderCalendar() {
     const dotClass = scoreDotClass(score);
     const day = document.createElement('div');
     day.className = `cal-day${isToday ? ' today' : ''}`;
-    day.innerHTML = `<div class="day-num">${d}</div>${score != null ? `<div class="day-score-dot ${dotClass}">${score}</div>` : ''}`;
-    if (score != null || dateStr === todayStr()) day.onclick = () => openDay(dateStr);
+    const hasWorkout = calWorkouts[dateStr] && calWorkouts[dateStr].length > 0;
+    const dotsHTML = `<div class="cal-day-dots">
+      ${score != null ? `<div class="dot-food ${dotClass}">${score}</div>` : ''}
+      ${hasWorkout ? `<div class="dot-workout">💪</div>` : ''}
+    </div>`;
+    day.innerHTML = `<div class="day-num">${d}</div>${dotsHTML}`;
+    day.onclick = () => openDay(dateStr);
+
     container.appendChild(day);
   }
 }
@@ -629,65 +672,179 @@ async function generateDailyTip() {
 }
 
 
-// ── Day modal ─────────────────────────────────────────────────────
-async function openDay(dateStr) {
-  const overlay = document.getElementById('modal-overlay');
-  const dateEl  = document.getElementById('modal-date');
-  const scoreEl = document.getElementById('modal-score');
-  const mealsEl = document.getElementById('modal-meals');
 
-  // Format date nicely
+// ── Day navigation ────────────────────────────────────────────────
+let viewingDate = null; // null = today
+
+async function openDay(dateStr) {
+  // Update selected day highlight
+  document.querySelectorAll('.cal-day').forEach(d => d.classList.remove('selected'));
+  const isToday = dateStr === todayStr();
+
+  if (isToday) {
+    backToToday();
+    return;
+  }
+
+  viewingDate = dateStr;
+
+  // Show viewing bar
   const [y,m,d] = dateStr.split('-');
   const dateObj = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
-  dateEl.textContent = dateObj.toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  const label = dateObj.toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long' });
+  document.getElementById('viewing-label').textContent = '📅 ' + label.charAt(0).toUpperCase() + label.slice(1);
+  document.getElementById('viewing-bar').style.display = 'flex';
+  document.getElementById('meals-section-title').textContent = 'Comidas del día';
 
-  // Show score if available
-  const score = calScores[dateStr];
-  scoreEl.textContent = score != null ? `Puntuación del día: ${score}/10` : '';
-
-  mealsEl.innerHTML = '<div class="modal-empty">⏳ Cargando...</div>';
-  overlay.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
+  // Load meals for that day
+  document.getElementById('meals-list').innerHTML = `<div class="empty-state"><div class="big-emoji">⏳</div><p>Cargando...</p></div>`;
+  document.getElementById('feedback-items').innerHTML = `<div class="feedback-empty">Cargando análisis...</div>`;
 
   try {
     const rows = await dbGet('comidas', `fecha=eq.${dateStr}&order=id.asc`);
-    if (!rows.length) {
-      mealsEl.innerHTML = '<div class="modal-empty">No hay comidas registradas este día.</div>';
-      return;
-    }
-    mealsEl.innerHTML = rows.map(r => {
-      const feedback = r.feedback_json || [];
-      const feedbackHTML = feedback.map(f =>
-        `<div class="feedback-item ${f.tipo}"><span>${feedbackIcon(f.tipo)}</span><span>${f.texto}</span></div>`
-      ).join('');
-      const sc = r.puntuacion;
-      const scClass = sc >= 8 ? 'score-hi' : sc >= 5 ? 'score-mid' : sc >= 3 ? 'score-low' : 'score-bad';
-      return `
-        <div class="meal-card ${r.momento}">
-          <div class="meal-emoji">${MEAL_EMOJIS[r.momento] || '🍽️'}</div>
-          <div class="meal-info">
-            <div class="meal-time-tag">${MEAL_LABELS[r.momento] || r.momento}</div>
-            <div class="meal-desc">${r.descripcion}</div>
-            <div class="meal-macros">
-              <span class="tag tag-cal">🔥 ${r.calorias} kcal</span>
-              <span class="tag tag-prot">💪 ${r.proteina}g prot</span>
-            </div>
-            ${feedbackHTML ? `<div class="meal-feedback" style="margin-top:8px;display:flex;flex-direction:column;gap:4px">${feedbackHTML}</div>` : ''}
-          </div>
-          ${sc != null ? `<div class="score-badge ${scClass}" style="flex-shrink:0">${sc}</div>` : ''}
-        </div>`;
-    }).join('');
+    const dayMeals = rows.map(r => ({
+      id: r.id, time: r.momento, desc: r.descripcion,
+      cal: r.calorias, prot: r.proteina, score: r.puntuacion,
+      feedback: r.feedback_json || []
+    }));
+
+    // Load workouts for that day
+    const dayWorkoutRows = await dbGet('entrenamientos', `fecha=eq.${dateStr}&order=id.asc`);
+    const dayWorkouts = dayWorkoutRows.map(r => ({ id: null, tipo: r.tipo }));
+
+    // Temporarily replace meals for rendering
+    const todayMeals = [...meals];
+    meals = dayMeals;
+    renderMeals();
+    renderWorkouts(dayWorkouts);
+    updateSummaryWith(dayMeals);
+    meals = todayMeals;
+
   } catch(e) {
-    mealsEl.innerHTML = '<div class="modal-empty">Error al cargar las comidas.</div>';
+    document.getElementById('meals-list').innerHTML = `<div class="empty-state"><p>Error al cargar las comidas.</p></div>`;
   }
 }
 
-function closeModal(e) {
-  if (e.target === document.getElementById('modal-overlay')) closeModalDirect();
+function updateSummaryWith(dayMeals) {
+  const valid = dayMeals.filter(m => m.cal && m.cal !== '?');
+  const totalCal  = valid.reduce((s,m) => s+(m.cal||0), 0);
+  const totalProt = valid.reduce((s,m) => s+(m.prot||0), 0);
+  document.getElementById('total-cal').textContent  = totalCal;
+  document.getElementById('total-prot').textContent = totalProt;
+  document.getElementById('meal-count').textContent = dayMeals.length;
+  document.getElementById('bar-cal').style.width  = Math.min(totalCal/1800*100,100)+'%';
+  document.getElementById('bar-prot').style.width = Math.min(totalProt/110*100,100)+'%';
+  document.getElementById('bar-meals').style.width = Math.min(dayMeals.length/5*100,100)+'%';
+  const protPct = Math.min(totalProt/110*100,100);
+  document.getElementById('prot-pct').textContent = Math.round(protPct)+'%';
+  document.getElementById('prot-bar').style.width = protPct+'%';
+  const rem = Math.max(0, 110-totalProt);
+  document.getElementById('prot-note').textContent = totalProt >= 110
+    ? '✅ Objetivo alcanzado ese día' : `Le faltaron ~${rem}g de proteína`;
+
+  // Render feedback for past day
+  const savedMeals = meals;
+  meals = dayMeals;
+  renderFeedbackPanel();
+  meals = savedMeals;
 }
-function closeModalDirect() {
-  document.getElementById('modal-overlay').classList.add('hidden');
-  document.body.style.overflow = '';
+
+function backToToday() {
+  viewingDate = null;
+  document.getElementById('viewing-bar').style.display = 'none';
+  document.getElementById('meals-section-title').textContent = 'Comidas del día';
+  renderWorkouts();
+  meals_render_today();
+}
+
+function meals_render_today() {
+  renderMeals();
+  updateSummary();
+  renderFeedbackPanel();
+}
+
+
+// ── Workouts ──────────────────────────────────────────────────────
+let workouts = []; // today's workouts
+let calWorkouts = {}; // dateStr -> [tipos]
+
+const WORKOUT_EMOJIS = {
+  'Pierna - Cuádriceps + Gemelo': '🦵',
+  'Glúteo + Femoral': '🍑',
+  'Espalda + Bíceps': '💪',
+  'Pecho + Tríceps': '🏋️',
+  'Funcional': '⚡',
+  'Pilates': '🧘',
+  'Cardio': '🏃',
+  'Otro': '🔥'
+};
+
+function toggleWorkout() {
+  const body = document.getElementById('workout-body');
+  const icon = document.getElementById('workout-toggle-icon');
+  body.classList.toggle('open');
+  icon.textContent = body.classList.contains('open') ? '▲' : '▼';
+}
+
+async function addWorkout() {
+  const tipo = document.getElementById('workout-type').value;
+  try {
+    syncStatus('saving', 'Guardando entreno...');
+    const saved = await dbPost('entrenamientos', { fecha: todayStr(), tipo });
+    workouts.push({ id: saved[0].id, tipo });
+    if (!calWorkouts[todayStr()]) calWorkouts[todayStr()] = [];
+    calWorkouts[todayStr()].push(tipo);
+    renderWorkouts();
+    renderCalendar();
+    syncStatus('ok', 'Entreno guardado ✓');
+    document.getElementById('workout-body').classList.remove('open');
+    document.getElementById('workout-toggle-icon').textContent = '▼';
+  } catch(e) { syncStatus('error', 'Error al guardar entreno'); }
+}
+
+async function deleteWorkout(id) {
+  workouts = workouts.filter(w => w.id !== id);
+  calWorkouts[todayStr()] = workouts.map(w => w.tipo);
+  renderWorkouts();
+  renderCalendar();
+  try { await dbDelete('entrenamientos', `id=eq.${id}`); syncStatus('ok', 'Eliminado ✓'); }
+  catch(e) { syncStatus('error', 'Error al eliminar'); }
+}
+
+function renderWorkouts(list) {
+  const container = document.getElementById('workout-list');
+  if (!container) return;
+  const wks = list || workouts;
+  if (!wks.length) { container.innerHTML = ''; return; }
+  container.innerHTML = wks.map(w => `
+    <div class="workout-card">
+      <div class="wk-info">
+        <span class="wk-emoji">${WORKOUT_EMOJIS[w.tipo] || '🏋️'}</span>
+        <div>
+          <div class="wk-label">${w.tipo}</div>
+        </div>
+      </div>
+      ${w.id && !list ? `<button class="delete-btn" onclick="deleteWorkout(${w.id})">✕</button>` : ''}
+    </div>`).join('');
+}
+
+async function loadTodayWorkouts() {
+  try {
+    const rows = await dbGet('entrenamientos', `fecha=eq.${todayStr()}&order=id.asc`);
+    workouts = rows.map(r => ({ id: r.id, tipo: r.tipo }));
+    renderWorkouts();
+  } catch(e) {}
+}
+
+async function loadCalendarWorkouts() {
+  try {
+    const rows = await dbGet('entrenamientos', 'order=fecha.asc');
+    calWorkouts = {};
+    rows.forEach(r => {
+      if (!calWorkouts[r.fecha]) calWorkouts[r.fecha] = [];
+      calWorkouts[r.fecha].push(r.tipo);
+    });
+  } catch(e) {}
 }
 
 // ── Init ──────────────────────────────────────────────────────────
@@ -695,21 +852,16 @@ async function init() {
   renderCalendar();
   updateSummary();
   await loadToday();
+  await loadTodayWorkouts();
   const scores = await loadCalendarScores();
   scores.forEach(s => { calScores[s.fecha] = s.puntuacion_media; });
+  await loadCalendarWorkouts();
   renderCalendar();
   if (meals.length) generateDailyTip();
 }
 
 init();
 </script>
-
-<!-- DAY MODAL -->
-<div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal(event)">
-  <div class="modal" id="modal">
-    <div class="modal-header">
-      <div>
-        <div class="modal-date" id="modal-date"></div>
         <div class="modal-score" id="modal-score"></div>
       </div>
       <button class="modal-close" onclick="closeModalDirect()">✕</button>
