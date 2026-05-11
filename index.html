@@ -155,6 +155,22 @@ textarea::placeholder { color:#B0A090; }
 .sync-dot.saving { background:#E8C84A; animation:pulse 1s infinite; }
 .sync-dot.error  { background:#C44A4A; }
 @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+/* DAY MODAL */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:100; display:flex; align-items:flex-end; justify-content:center; animation:fadeIn 0.2s ease; }
+.modal-overlay.hidden { display:none; }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+.modal { background:var(--cream); border-radius:20px 20px 0 0; width:100%; max-width:480px; max-height:85vh; overflow-y:auto; padding-bottom:32px; animation:slideUp 0.3s ease; }
+@keyframes slideUp { from{transform:translateY(100%)} to{transform:translateY(0)} }
+.modal-header { position:sticky; top:0; background:var(--text); color:var(--cream); padding:16px 20px; display:flex; align-items:center; justify-content:space-between; border-radius:20px 20px 0 0; }
+.modal-date { font-family:'Playfair Display',serif; font-size:1rem; font-weight:700; text-transform:capitalize; }
+.modal-close { background:none; border:none; color:var(--cream); font-size:1.4rem; cursor:pointer; opacity:0.7; line-height:1; padding:0 4px; }
+.modal-close:hover { opacity:1; }
+.modal-score { font-size:0.75rem; color:#B0A090; margin-top:2px; }
+.modal-meals { padding:16px; display:flex; flex-direction:column; gap:10px; }
+.modal-empty { text-align:center; padding:40px 24px; color:var(--text-light); font-size:0.88rem; }
+.cal-day { cursor:pointer; transition:background 0.15s; }
+.cal-day:not(.empty):hover { background:var(--warm); }
 </style>
 </head>
 <body>
@@ -586,6 +602,7 @@ function renderCalendar() {
     const day = document.createElement('div');
     day.className = `cal-day${isToday ? ' today' : ''}`;
     day.innerHTML = `<div class="day-num">${d}</div>${score != null ? `<div class="day-score-dot ${dotClass}">${score}</div>` : ''}`;
+    if (score != null || dateStr === todayStr()) day.onclick = () => openDay(dateStr);
     container.appendChild(day);
   }
 }
@@ -611,6 +628,68 @@ async function generateDailyTip() {
   } catch(e) {}
 }
 
+
+// ── Day modal ─────────────────────────────────────────────────────
+async function openDay(dateStr) {
+  const overlay = document.getElementById('modal-overlay');
+  const dateEl  = document.getElementById('modal-date');
+  const scoreEl = document.getElementById('modal-score');
+  const mealsEl = document.getElementById('modal-meals');
+
+  // Format date nicely
+  const [y,m,d] = dateStr.split('-');
+  const dateObj = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+  dateEl.textContent = dateObj.toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  // Show score if available
+  const score = calScores[dateStr];
+  scoreEl.textContent = score != null ? `Puntuación del día: ${score}/10` : '';
+
+  mealsEl.innerHTML = '<div class="modal-empty">⏳ Cargando...</div>';
+  overlay.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const rows = await dbGet('comidas', `fecha=eq.${dateStr}&order=id.asc`);
+    if (!rows.length) {
+      mealsEl.innerHTML = '<div class="modal-empty">No hay comidas registradas este día.</div>';
+      return;
+    }
+    mealsEl.innerHTML = rows.map(r => {
+      const feedback = r.feedback_json || [];
+      const feedbackHTML = feedback.map(f =>
+        `<div class="feedback-item ${f.tipo}"><span>${feedbackIcon(f.tipo)}</span><span>${f.texto}</span></div>`
+      ).join('');
+      const sc = r.puntuacion;
+      const scClass = sc >= 8 ? 'score-hi' : sc >= 5 ? 'score-mid' : sc >= 3 ? 'score-low' : 'score-bad';
+      return `
+        <div class="meal-card ${r.momento}">
+          <div class="meal-emoji">${MEAL_EMOJIS[r.momento] || '🍽️'}</div>
+          <div class="meal-info">
+            <div class="meal-time-tag">${MEAL_LABELS[r.momento] || r.momento}</div>
+            <div class="meal-desc">${r.descripcion}</div>
+            <div class="meal-macros">
+              <span class="tag tag-cal">🔥 ${r.calorias} kcal</span>
+              <span class="tag tag-prot">💪 ${r.proteina}g prot</span>
+            </div>
+            ${feedbackHTML ? `<div class="meal-feedback" style="margin-top:8px;display:flex;flex-direction:column;gap:4px">${feedbackHTML}</div>` : ''}
+          </div>
+          ${sc != null ? `<div class="score-badge ${scClass}" style="flex-shrink:0">${sc}</div>` : ''}
+        </div>`;
+    }).join('');
+  } catch(e) {
+    mealsEl.innerHTML = '<div class="modal-empty">Error al cargar las comidas.</div>';
+  }
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeModalDirect();
+}
+function closeModalDirect() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 async function init() {
   renderCalendar();
@@ -624,5 +703,21 @@ async function init() {
 
 init();
 </script>
+
+<!-- DAY MODAL -->
+<div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-date" id="modal-date"></div>
+        <div class="modal-score" id="modal-score"></div>
+      </div>
+      <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    </div>
+    <div class="modal-meals" id="modal-meals">
+      <div class="modal-empty">⏳ Cargando...</div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
