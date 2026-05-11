@@ -176,6 +176,28 @@ textarea::placeholder { color:#B0A090; }
 .workout-card .wk-emoji { font-size:1.3rem; }
 .workout-card .wk-label { font-size:0.88rem; font-weight:500; color:var(--text); }
 .workout-card .wk-date { font-size:0.7rem; color:var(--text-light); margin-top:1px; }
+
+/* API KEY BANNER */
+.api-banner { background:#FFF8D0; border-bottom:1px solid #E8C84A; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.api-banner p { font-size:0.78rem; color:#7A5A00; flex:1; }
+.api-banner p strong { display:block; font-size:0.82rem; margin-bottom:2px; }
+.btn-api { padding:7px 14px; background:#E8C84A; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:0.78rem; font-weight:600; color:#5A3A00; cursor:pointer; white-space:nowrap; }
+.btn-api:hover { background:#d4b030; }
+.api-configured { background:#E6F5EC; border-bottom:1px solid #4A7C59; padding:8px 16px; display:flex; align-items:center; justify-content:space-between; }
+.api-configured span { font-size:0.75rem; color:#1A5C32; }
+.api-configured button { background:none; border:none; font-size:0.72rem; color:#4A7C59; cursor:pointer; text-decoration:underline; }
+
+/* API KEY MODAL */
+.apikey-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:200; display:flex; align-items:center; justify-content:center; padding:24px; }
+.apikey-overlay.hidden { display:none; }
+.apikey-modal { background:var(--cream); border-radius:16px; padding:24px; width:100%; max-width:400px; }
+.apikey-modal h2 { font-family:'Playfair Display',serif; font-size:1.2rem; margin-bottom:8px; }
+.apikey-modal p { font-size:0.82rem; color:var(--text-light); margin-bottom:16px; line-height:1.5; }
+.apikey-modal input { width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:10px; font-family:'DM Sans',sans-serif; font-size:0.85rem; outline:none; margin-bottom:12px; }
+.apikey-modal input:focus { border-color:var(--terracota); }
+.apikey-modal .btn-row { display:flex; gap:8px; }
+.btn-save-key { flex:1; padding:10px; background:var(--terracota); color:white; border:none; border-radius:10px; font-family:'DM Sans',sans-serif; font-size:0.88rem; font-weight:500; cursor:pointer; }
+.btn-cancel-key { padding:10px 16px; background:var(--warm); border:1px solid var(--border); border-radius:10px; font-family:'DM Sans',sans-serif; font-size:0.88rem; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -184,6 +206,30 @@ textarea::placeholder { color:#B0A090; }
   <h1>Mi Diario 🥗</h1>
   <p>Alimentación · Proteína · Consejos</p>
 </header>
+
+
+<!-- API KEY BANNER -->
+<div id="api-banner" class="api-banner" style="display:none">
+  <p><strong>⚠️ Sin API key de Gemini</strong>El análisis automático de comidas no está activo.</p>
+  <button class="btn-api" onclick="openApiModal()">Configurar clave</button>
+</div>
+<div id="api-ok" class="api-configured" style="display:none">
+  <span>✅ Gemini activo — análisis automático funcionando</span>
+  <button onclick="openApiModal()">Cambiar clave</button>
+</div>
+
+<!-- API KEY MODAL -->
+<div class="apikey-overlay hidden" id="apikey-overlay">
+  <div class="apikey-modal">
+    <h2>🔑 API Key de Gemini</h2>
+    <p>Consíguela gratis en <strong>aistudio.google.com</strong> → "Get API key". Se guarda solo en tu dispositivo, nadie más puede verla.</p>
+    <input type="password" id="apikey-input" placeholder="Pega aquí tu API key..." />
+    <div class="btn-row">
+      <button class="btn-cancel-key" onclick="closeApiModal()">Cancelar</button>
+      <button class="btn-save-key" onclick="saveApiKey()">Guardar</button>
+    </div>
+  </div>
+</div>
 
 <div class="date-bar">
   <span class="date-label">Hoy</span>
@@ -197,12 +243,12 @@ textarea::placeholder { color:#B0A090; }
 
 <div class="summary">
   <div class="macro">
-    <div class="macro-val"><span id="total-cal">0</span><span> kcal</span></div>
-    <div class="macro-label">Calorías</div>
+    <div class="macro-val"><span id="total-cal">0</span><span id="cal-goal-label"> / 1750</span></div>
+    <div class="macro-label">Calorías kcal</div>
     <div class="macro-bar"><div class="macro-bar-fill bar-cal" id="bar-cal" style="width:0%"></div></div>
   </div>
   <div class="macro">
-    <div class="macro-val"><span id="total-prot">0</span><span> g</span></div>
+    <div class="macro-val"><span id="total-prot">0</span><span id="prot-goal-label"> / 110g</span></div>
     <div class="macro-label">Proteína</div>
     <div class="macro-bar"><div class="macro-bar-fill bar-prot" id="bar-prot" style="width:0%"></div></div>
   </div>
@@ -215,11 +261,19 @@ textarea::placeholder { color:#B0A090; }
 
 <div class="goal-bar">
   <div class="goal-header">
-    <span class="goal-title">Objetivo proteína diaria</span>
+    <span class="goal-title">Calorías</span>
+    <span class="goal-pct" id="cal-pct" style="color:var(--terracota)">0%</span>
+  </div>
+  <div class="progress-track"><div class="progress-fill" id="cal-bar" style="width:0%;background:linear-gradient(90deg,var(--terracota),#E8A84A)"></div></div>
+  <div class="goal-note" id="cal-note">Meta: 1.750 kcal/día · déficit para perder grasa</div>
+</div>
+<div class="goal-bar" style="margin-top:8px">
+  <div class="goal-header">
+    <span class="goal-title">Proteína</span>
     <span class="goal-pct" id="prot-pct">0%</span>
   </div>
   <div class="progress-track"><div class="progress-fill" id="prot-bar" style="width:0%"></div></div>
-  <div class="goal-note" id="prot-note">Meta: ~100–120g/día para tu objetivo</div>
+  <div class="goal-note" id="prot-note">Meta: 110g/día · 1.9g × 58kg</div>
 </div>
 
 
@@ -286,7 +340,7 @@ textarea::placeholder { color:#B0A090; }
   <div class="add-body" id="workout-body">
     <div class="form-row">
       <label class="form-label">Tipo de entrenamiento</label>
-      <select id="workout-type">
+      <select id="workout-type" onchange="toggleCustomWorkout(this)">
         <option value="Pierna - Cuádriceps + Gemelo">🦵 Pierna — Cuádriceps + Gemelo</option>
         <option value="Glúteo + Femoral">🍑 Glúteo + Femoral</option>
         <option value="Espalda + Bíceps">💪 Espalda + Bíceps</option>
@@ -294,8 +348,9 @@ textarea::placeholder { color:#B0A090; }
         <option value="Funcional">⚡ Funcional</option>
         <option value="Pilates">🧘 Pilates</option>
         <option value="Cardio">🏃 Cardio</option>
-        <option value="Otro">🔥 Otro</option>
+        <option value="__custom__">✏️ Escribir otro...</option>
       </select>
+      <input type="text" id="workout-custom" placeholder="Describe el entrenamiento..." style="display:none;margin-top:8px;width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;background:var(--cream);font-family:'DM Sans',sans-serif;font-size:0.88rem;outline:none;" />
     </div>
     <button class="btn-add" onclick="addWorkout()">Guardar entrenamiento 💪</button>
   </div>
@@ -342,6 +397,7 @@ const MEAL_LABELS  = { desayuno:'Desayuno', 'media-manana':'Media mañana', comi
 
 let meals = [];
 let activeFilter = 'all';
+let currentViewMeals = null; // null = today's meals
 let calYear, calMonth;
 
 const now = new Date();
@@ -452,18 +508,21 @@ async function addMeal() {
   document.getElementById('toggle-icon').textContent = '▼';
 
   try {
-    // AI analysis
-    const aiResp = await fetch("https://api.anthropic.com/v1/messages", {
+    // AI analysis via Gemini
+    const geminiKey = localStorage.getItem('gemini_api_key');
+    if (!geminiKey) throw new Error('No API key');
+    const aiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514", max_tokens: 1000,
-        system: `Eres un nutricionista experto y ESTRICTO. Perfil usuaria: mujer, gimnasio nivel intermedio, objetivo perder grasa y verse más fina, entrena pesas + funcional 4-5 días/semana, meta proteína 100-120g/día. Sé MUY ESTRICTO. Un 10 es casi imposible. Penaliza: azúcar, ultraprocesados, rebozados, salsas industriales, poca proteína, carbohidratos vacíos. Premia: proteína de calidad, verduras, grasas saludables, alimentos reales. Responde SOLO JSON sin backticks: {"calorias":int,"proteina":int,"puntuacion":float,"feedback":[{"tipo":"good"|"warn"|"bad","texto":"..."}]}. 2-4 items de feedback específicos.`,
-        messages: [{ role: "user", content: `Momento: ${MEAL_LABELS[time]}\nComida: ${desc}` }]
+        contents: [{ parts: [{ text: `Eres un nutricionista experto y ESTRICTO. Perfil usuaria: mujer, gimnasio nivel intermedio, objetivo perder grasa y verse más fina, entrena pesas + funcional 4-5 días/semana, meta proteína 110g/día, meta calorías 1750kcal/día. Sé MUY ESTRICTO. Un 10 es casi imposible. Penaliza: azúcar, ultraprocesados, rebozados, salsas industriales, poca proteína, carbohidratos vacíos. Premia: proteína de calidad, verduras, grasas saludables, alimentos reales. Responde SOLO JSON sin backticks ni markdown: {"calorias":int,"proteina":int,"puntuacion":float,"feedback":[{"tipo":"good","texto":"..."}]}. 2-4 items, tipo puede ser good/warn/bad.
+
+Momento: ${MEAL_LABELS[time]}
+Comida: ${desc}` }] }]
       })
     });
     const aiData = await aiResp.json();
-    const aiText = aiData.content.find(b => b.type === 'text')?.text || '';
+    const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const parsed = JSON.parse(aiText.replace(/```json|```/g,'').trim());
 
     // Save to Supabase
@@ -553,7 +612,7 @@ function renderMeals() {
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">
         ${!isLoading && meal.score !== null ? `<div class="score-badge ${scoreClass(meal.score)}">${meal.score}</div>` : ''}
-        <button class="delete-btn" onclick="deleteMeal(${meal.id})">✕</button>
+        ${!viewingDate && meal.id ? `<button class='delete-btn' onclick='deleteMeal(${meal.id})'>✕</button>` : ''}
       </div>`;
     list.appendChild(card);
   });
@@ -565,14 +624,15 @@ function setFilter(filter, btn) {
   activeFilter = filter;
   document.querySelectorAll('.filter-btn').forEach(b => b.className = 'filter-btn');
   btn.classList.add('active-' + filter);
-  renderFeedbackPanel();
+  renderFeedbackPanel(currentViewMeals);
 }
 
-function renderFeedbackPanel() {
+function renderFeedbackPanel(sourceMeals) {
   const container = document.getElementById('feedback-items');
   if (!container) return;
+  const src = sourceMeals || meals;
   const all = [];
-  meals.forEach(meal => {
+  src.forEach(meal => {
     if (!meal.feedback || !meal.feedback.length) return;
     meal.feedback.forEach(f => all.push({ ...f, mealLabel: MEAL_LABELS[meal.time], mealEmoji: MEAL_EMOJIS[meal.time] }));
   });
@@ -712,12 +772,14 @@ async function openDay(dateStr) {
     const dayWorkoutRows = await dbGet('entrenamientos', `fecha=eq.${dateStr}&order=id.asc`);
     const dayWorkouts = dayWorkoutRows.map(r => ({ id: null, tipo: r.tipo }));
 
+    currentViewMeals = dayMeals;
     // Temporarily replace meals for rendering
     const todayMeals = [...meals];
     meals = dayMeals;
     renderMeals();
     renderWorkouts(dayWorkouts);
     updateSummaryWith(dayMeals);
+    renderFeedbackPanel(dayMeals);
     meals = todayMeals;
 
   } catch(e) {
@@ -732,14 +794,18 @@ function updateSummaryWith(dayMeals) {
   document.getElementById('total-cal').textContent  = totalCal;
   document.getElementById('total-prot').textContent = totalProt;
   document.getElementById('meal-count').textContent = dayMeals.length;
-  document.getElementById('bar-cal').style.width  = Math.min(totalCal/1800*100,100)+'%';
-  document.getElementById('bar-prot').style.width = Math.min(totalProt/110*100,100)+'%';
+  document.getElementById('bar-cal').style.width   = Math.min(totalCal/CAL_GOAL*100,100)+'%';
+  document.getElementById('bar-prot').style.width  = Math.min(totalProt/PROT_GOAL*100,100)+'%';
   document.getElementById('bar-meals').style.width = Math.min(dayMeals.length/5*100,100)+'%';
-  const protPct = Math.min(totalProt/110*100,100);
+  const calPct  = Math.min(totalCal/CAL_GOAL*100,100);
+  const protPct = Math.min(totalProt/PROT_GOAL*100,100);
+  document.getElementById('cal-pct').textContent  = Math.round(calPct)+'%';
+  document.getElementById('cal-bar').style.width  = calPct+'%';
+  document.getElementById('cal-note').textContent = `${totalCal} kcal de ${CAL_GOAL} kcal`;
   document.getElementById('prot-pct').textContent = Math.round(protPct)+'%';
   document.getElementById('prot-bar').style.width = protPct+'%';
-  const rem = Math.max(0, 110-totalProt);
-  document.getElementById('prot-note').textContent = totalProt >= 110
+  const rem = Math.max(0, PROT_GOAL - totalProt);
+  document.getElementById('prot-note').textContent = totalProt >= PROT_GOAL
     ? '✅ Objetivo alcanzado ese día' : `Le faltaron ~${rem}g de proteína`;
 
   // Render feedback for past day
@@ -753,6 +819,7 @@ function backToToday() {
   viewingDate = null;
   document.getElementById('viewing-bar').style.display = 'none';
   document.getElementById('meals-section-title').textContent = 'Comidas del día';
+  currentViewMeals = null;
   renderWorkouts();
   meals_render_today();
 }
@@ -786,19 +853,30 @@ function toggleWorkout() {
   icon.textContent = body.classList.contains('open') ? '▲' : '▼';
 }
 
+function toggleCustomWorkout(sel) {
+  const custom = document.getElementById('workout-custom');
+  custom.style.display = sel.value === '__custom__' ? 'block' : 'none';
+}
+
 async function addWorkout() {
-  const tipo = document.getElementById('workout-type').value;
+  const sel = document.getElementById('workout-type').value;
+  const customVal = document.getElementById('workout-custom').value.trim();
+  const tipo = sel === '__custom__' ? (customVal || 'Otro') : sel;
+  const fechaEntreno = viewingDate || todayStr();
   try {
     syncStatus('saving', 'Guardando entreno...');
-    const saved = await dbPost('entrenamientos', { fecha: todayStr(), tipo });
-    workouts.push({ id: saved[0].id, tipo });
-    if (!calWorkouts[todayStr()]) calWorkouts[todayStr()] = [];
-    calWorkouts[todayStr()].push(tipo);
+    const saved = await dbPost('entrenamientos', { fecha: fechaEntreno, tipo });
+    if (fechaEntreno === todayStr()) workouts.push({ id: saved[0].id, tipo });
+    if (!calWorkouts[fechaEntreno]) calWorkouts[fechaEntreno] = [];
+    calWorkouts[fechaEntreno].push(tipo);
     renderWorkouts();
     renderCalendar();
     syncStatus('ok', 'Entreno guardado ✓');
     document.getElementById('workout-body').classList.remove('open');
     document.getElementById('workout-toggle-icon').textContent = '▼';
+    document.getElementById('workout-type').value = 'Pierna - Cuádriceps + Gemelo';
+    document.getElementById('workout-custom').style.display = 'none';
+    document.getElementById('workout-custom').value = '';
   } catch(e) { syncStatus('error', 'Error al guardar entreno'); }
 }
 
@@ -847,8 +925,45 @@ async function loadCalendarWorkouts() {
   } catch(e) {}
 }
 
+
+// ── API Key ────────────────────────────────────────────────────────
+function checkApiKey() {
+  const key = localStorage.getItem('gemini_api_key');
+  if (key) {
+    document.getElementById('api-banner').style.display = 'none';
+    document.getElementById('api-ok').style.display = 'flex';
+  } else {
+    document.getElementById('api-banner').style.display = 'flex';
+    document.getElementById('api-ok').style.display = 'none';
+  }
+}
+
+function openApiModal() {
+  const key = localStorage.getItem('gemini_api_key');
+  if (key) document.getElementById('apikey-input').value = key;
+  document.getElementById('apikey-overlay').classList.remove('hidden');
+}
+
+function closeApiModal() {
+  document.getElementById('apikey-overlay').classList.add('hidden');
+}
+
+function saveApiKey() {
+  const val = document.getElementById('apikey-input').value.trim();
+  if (!val) return;
+  localStorage.setItem('gemini_api_key', val);
+  closeApiModal();
+  checkApiKey();
+}
+
+// Close modal clicking outside
+document.getElementById('apikey-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeApiModal();
+});
+
 // ── Init ──────────────────────────────────────────────────────────
 async function init() {
+  checkApiKey();
   renderCalendar();
   updateSummary();
   await loadToday();
@@ -862,14 +977,5 @@ async function init() {
 
 init();
 </script>
-        <div class="modal-score" id="modal-score"></div>
-      </div>
-      <button class="modal-close" onclick="closeModalDirect()">✕</button>
-    </div>
-    <div class="modal-meals" id="modal-meals">
-      <div class="modal-empty">⏳ Cargando...</div>
-    </div>
-  </div>
-</div>
 </body>
 </html>
