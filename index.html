@@ -160,7 +160,8 @@ textarea::placeholder { color:#B0A090; }
 /* SELECTED DAY */
 .cal-day:not(.empty) { cursor:pointer; transition:background 0.15s; }
 .cal-day:not(.empty):hover { background:var(--warm); }
-.cal-day.selected .day-num { background:var(--terracota); color:white; border-radius:50%; }
+.cal-day.selected { background:var(--warm) !important; }
+.cal-day.selected .day-num { background:var(--terracota); color:white; border-radius:50%; outline: 2px solid var(--terracota-dark); outline-offset: 1px; }
 .viewing-bar { margin:0 16px; background:var(--terracota); color:white; border-radius:12px; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; font-size:0.82rem; font-weight:500; }
 .viewing-bar button { background:none; border:none; color:white; font-size:0.8rem; cursor:pointer; opacity:0.8; text-decoration:underline; }
 .viewing-bar button:hover { opacity:1; }
@@ -704,6 +705,8 @@ function renderCalendar() {
       ${hasWorkout ? `<div class="dot-workout">💪</div>` : ''}
     </div>`;
     day.innerHTML = `<div class="day-num">${d}</div>${dotsHTML}`;
+    day.dataset.date = dateStr;
+    if (viewingDate === dateStr) day.classList.add('selected');
     day.onclick = () => openDay(dateStr);
 
     container.appendChild(day);
@@ -737,8 +740,6 @@ async function generateDailyTip() {
 let viewingDate = null; // null = today
 
 async function openDay(dateStr) {
-  // Update selected day highlight
-  document.querySelectorAll('.cal-day').forEach(d => d.classList.remove('selected'));
   const isToday = dateStr === todayStr();
 
   if (isToday) {
@@ -747,6 +748,11 @@ async function openDay(dateStr) {
   }
 
   viewingDate = dateStr;
+
+  // Highlight selected day
+  document.querySelectorAll('.cal-day').forEach(d => d.classList.remove('selected'));
+  const clickedDay = document.querySelector(`.cal-day[data-date="${dateStr}"]`);
+  if (clickedDay) clickedDay.classList.add('selected');
 
   // Show viewing bar
   const [y,m,d] = dateStr.split('-');
@@ -783,7 +789,9 @@ async function openDay(dateStr) {
     meals = todayMeals;
 
   } catch(e) {
-    document.getElementById('meals-list').innerHTML = `<div class="empty-state"><p>Error al cargar las comidas.</p></div>`;
+    console.error('openDay error:', e);
+    document.getElementById('meals-list').innerHTML = `<div class="empty-state"><p>Error: ${e.message || 'No se pudieron cargar las comidas. Comprueba que el SQL está ejecutado en Supabase.'}</p></div>`;
+    document.getElementById('feedback-items').innerHTML = `<div class="feedback-empty">Sin datos</div>`;
   }
 }
 
@@ -820,6 +828,8 @@ function backToToday() {
   document.getElementById('viewing-bar').style.display = 'none';
   document.getElementById('meals-section-title').textContent = 'Comidas del día';
   currentViewMeals = null;
+  viewingDate = null;
+  document.querySelectorAll('.cal-day').forEach(d => d.classList.remove('selected'));
   renderWorkouts();
   meals_render_today();
 }
