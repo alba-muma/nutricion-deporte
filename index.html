@@ -525,8 +525,12 @@ Comida: ${desc}` }] }]
       })
     });
     const aiData = await aiResp.json();
+    console.log('Gemini response:', JSON.stringify(aiData));
     const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('Gemini text:', aiText);
+    if (!aiText) throw new Error('Gemini no devolvió texto. Comprueba la API key.');
     const parsed = JSON.parse(aiText.replace(/```json|```/g,'').trim());
+    console.log('Parsed:', parsed);
 
     // Save to Supabase
     syncStatus('saving', 'Guardando...');
@@ -549,10 +553,13 @@ Comida: ${desc}` }] }]
     generateDailyTip();
 
   } catch(e) {
+    console.error('addMeal error:', e);
+    // Try to show what Gemini returned if parsing failed
+    console.error('Error message:', e.message);
     const idx = meals.findIndex(m => m.id === tempMeal.id);
     if (idx !== -1) { meals[idx].cal = '?'; meals[idx].prot = '?'; meals[idx].score = null; meals[idx].feedback = []; }
     renderMeals();
-    syncStatus('error', 'Error al guardar');
+    syncStatus('error', `Error: ${e.message || 'desconocido'}`);
   }
 
   btn.disabled = false; btn.textContent = 'Calcular y añadir ✨';
