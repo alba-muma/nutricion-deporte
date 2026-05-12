@@ -1069,12 +1069,16 @@ async function init() {
   checkApiKey();
   renderCalendar();
   updateSummary();
-  await loadToday();
-  await loadTodayWorkouts();
+
+  // Load calendar data first
   const scores = await loadCalendarScores();
   scores.forEach(s => { calScores[s.fecha] = s.puntuacion_media; });
   await loadCalendarWorkouts();
   renderCalendar();
+
+  // Load today — updateDayScore inside will recalculate and overwrite today's score
+  await loadToday();
+  await loadTodayWorkouts();
 }
 
 init();
