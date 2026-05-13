@@ -654,17 +654,26 @@ async function deleteMeal(id) {
 
 // ── Day score ─────────────────────────────────────────────────────
 async function updateDayScore(sourceMeals, fecha) {
-  const src = sourceMeals || meals;
   const date = fecha || todayStr();
-  const scored = src.filter(m => m.score !== null && m.score !== undefined && !isNaN(parseFloat(m.score)));
-  const scores = scored.map(m => parseFloat(m.score));
-  if (!scored.length) return;
-  const avg = Math.round(scores.reduce((s,v) => s + v, 0) / scores.length * 10) / 10;
+  // Small delay so Supabase trigger has time to run
+  await new Promise(r => setTimeout(r, 500));
   try {
-    await dbUpsert('puntuaciones_dia', { fecha: date, puntuacion_media: avg });
-    calScores[date] = avg;
+    const rows = await dbGet('puntuaciones_dia', `fecha=eq.${date}`);
+    if (rows.length) {
+      calScores[date] = parseFloat(rows[0].puntuacion_media);
+    } else {
+      delete calScores[date];
+    }
     renderCalendar();
-  } catch(e) {}
+  } catch(e) {
+    // Fallback: calculate locally
+    const src = sourceMeals || meals;
+    const scored = src.filter(m => m.score !== null && m.score !== undefined && !isNaN(parseFloat(m.score)));
+    if (scored.length) {
+      calScores[date] = Math.round(scored.reduce((s,m) => s + parseFloat(m.score), 0) / scored.length * 10) / 10;
+    }
+    renderCalendar();
+  }
 }
 
 // ── Render meals ──────────────────────────────────────────────────
