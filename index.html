@@ -339,6 +339,10 @@ textarea::placeholder { color:#B0A090; }
       <label class="form-label">¿Qué has comido?</label>
       <textarea id="meal-desc" placeholder="Ej: tostada con aguacate y dos huevos..."></textarea>
     </div>
+    <div class="form-row">
+      <label class="form-label">Contexto <span style="font-weight:300;text-transform:none;letter-spacing:0">(opcional — cumple, post-entreno, tenía hambre...)</span></label>
+      <textarea id="meal-context" placeholder="Ej: era el cumple de mi madre, llevaba sin comer desde las 8h..." style="min-height:54px"></textarea>
+    </div>
     <button class="btn-add" id="btn-add" onclick="addMeal()">Calcular y añadir ✨</button>
   </div>
 </div>
@@ -537,7 +541,7 @@ async function addMeal() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `Eres un nutricionista cercano, directo y honesto. Perfil usuaria: mujer, gimnasio nivel intermedio, objetivo perder grasa y verse más fina, entrena pesas + funcional 4-5 días/semana, meta proteína 110g/día, meta calorías 1750kcal/día. Sé estricto en la puntuación pero con tono tranquilo y constructivo — sin dramas, sin mayúsculas, sin exclamaciones. Un 10 es casi imposible. Penaliza: azúcar, ultraprocesados, rebozados, salsas industriales, poca proteína, carbohidratos vacíos. Premia: proteína de calidad, verduras, grasas saludables, alimentos reales. El feedback debe ser específico, breve y útil — máximo 1-2 frases por item. Responde SOLO JSON sin backticks ni markdown: {"calorias":int,"proteina":int,"puntuacion":float,"feedback":[{"tipo":"good","texto":"..."}]}. 2-4 items, tipo puede ser good/warn/bad.
+        contents: [{ parts: [{ text: `Eres una nutricionista cercana, directa y honesta. Perfil usuaria: mujer, gimnasio nivel intermedio, objetivo perder grasa y verse más fina, entrena pesas + funcional 4-5 días/semana, meta proteína 110g/día, meta calorías 1750kcal/día. Tono tranquilo y constructivo, sin dramas ni mayúsculas. Un 10 es casi imposible. Ten en cuenta el contexto que da la usuaria (cumpleaños, post-entreno, hambre, etc.) para ajustar la puntuación y el tono — no es lo mismo comer mal en un cumple que hacerlo sin motivo. Genera solo el feedback que sea realmente útil — puede ser 1 item o 4, lo que tenga sentido. No estés obligada a incluir un bueno, un malo y un amarillo; pon los que correspondan. Cada item: máximo 1-2 frases, concreto y útil. Responde SOLO JSON sin backticks ni markdown: {"calorias":int,"proteina":int,"puntuacion":float,"feedback":[{"tipo":"good"|"warn"|"bad","texto":"..."}]}.
 
 Momento: ${MEAL_LABELS[time]}
 Comida: ${desc}` }] }]
@@ -554,7 +558,7 @@ Comida: ${desc}` }] }]
     // Save to Supabase
     syncStatus('saving', 'Guardando...');
     const saved = await dbPost('comidas', {
-      fecha: todayStr(), momento: time, descripcion: desc,
+      fecha: viewingDate || todayStr(), momento: time, descripcion: desc,
       calorias: parsed.calorias, proteina: parsed.proteina,
       puntuacion: parsed.puntuacion, feedback_json: parsed.feedback
     });
@@ -563,6 +567,17 @@ Comida: ${desc}` }] }]
     const idx = meals.findIndex(m => m.id === tempMeal.id);
     if (idx !== -1 && saved[0]) {
       meals[idx] = { id: saved[0].id, time, desc, cal: parsed.calorias, prot: parsed.proteina, score: parsed.puntuacion, feedback: parsed.feedback };
+    } else if (viewingDate && saved[0]) {
+      // Viewing past day — reload that day's meals
+      const rows = await dbGet('comidas', `fecha=eq.${viewingDate}&order=id.asc`);
+      const dayMeals = rows.map(r => ({ id: r.id, time: r.momento, desc: r.descripcion, cal: r.calorias, prot: r.proteina, score: r.puntuacion, feedback: r.feedback_json || [] }));
+      currentViewMeals = dayMeals;
+      const todayMeals = [...meals];
+      meals = dayMeals;
+      renderMeals();
+      updateSummaryWith(dayMeals);
+      renderFeedbackPanel(dayMeals);
+      meals = todayMeals;
     }
 
     renderMeals();
