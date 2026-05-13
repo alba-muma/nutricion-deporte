@@ -520,23 +520,32 @@ function toggleAdd() {
 async function addMeal() {
   const time = document.getElementById('meal-time').value;
   const desc = document.getElementById('meal-desc').value.trim();
+  const ctx  = document.getElementById('meal-context').value.trim();
   if (!desc) return;
+
+  const targetDate = viewingDate || todayStr();
+  const isViewingPast = !!viewingDate;
 
   const btn = document.getElementById('btn-add');
   btn.disabled = true; btn.textContent = 'Analizando...';
 
-  // Optimistic add
-  const tempMeal = { id: 'temp_' + Date.now(), time, desc, cal: null, prot: null, score: null, feedback: null };
-  meals.push(tempMeal);
-  renderMeals();
+  // Clear fields and close form
   document.getElementById('meal-desc').value = '';
+  document.getElementById('meal-context').value = '';
   document.getElementById('add-body').classList.remove('open');
   document.getElementById('toggle-icon').textContent = '▼';
+
+  // Show loading card only for today
+  const tempMeal = { id: 'temp_' + Date.now(), time, desc, cal: null, prot: null, score: null, feedback: null };
+  if (!isViewingPast) {
+    meals.push(tempMeal);
+    renderMeals();
+  }
 
   try {
     // AI analysis via Gemini
     const geminiKey = localStorage.getItem('gemini_api_key');
-    if (!geminiKey) throw new Error('No API key');
+    if (!geminiKey) throw new Error('No API key — configura tu clave de Gemini');
     const aiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -544,32 +553,27 @@ async function addMeal() {
         contents: [{ parts: [{ text: `Eres una nutricionista cercana, directa y honesta. Perfil usuaria: mujer, gimnasio nivel intermedio, objetivo perder grasa y verse más fina, entrena pesas + funcional 4-5 días/semana, meta proteína 110g/día, meta calorías 1750kcal/día. Tono tranquilo y constructivo, sin dramas ni mayúsculas. Un 10 es casi imposible. Ten en cuenta el contexto que da la usuaria (cumpleaños, post-entreno, hambre, etc.) para ajustar la puntuación y el tono — no es lo mismo comer mal en un cumple que hacerlo sin motivo. Genera solo el feedback que sea realmente útil — puede ser 1 item o 4, lo que tenga sentido. No estés obligada a incluir un bueno, un malo y un amarillo; pon los que correspondan. Cada item: máximo 1-2 frases, concreto y útil. Responde SOLO JSON sin backticks ni markdown: {"calorias":int,"proteina":int,"puntuacion":float,"feedback":[{"tipo":"good"|"warn"|"bad","texto":"..."}]}.
 
 Momento: ${MEAL_LABELS[time]}
-Comida: ${desc}` }] }]
+Comida: ${desc}${ctx ? '\nContexto: ' + ctx : ''}` }] }]
       })
     });
     const aiData = await aiResp.json();
-    console.log('Gemini response:', JSON.stringify(aiData));
     const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    console.log('Gemini text:', aiText);
     if (!aiText) throw new Error('Gemini no devolvió texto. Comprueba la API key.');
     const parsed = JSON.parse(aiText.replace(/```json|```/g,'').trim());
-    console.log('Parsed:', parsed);
 
     // Save to Supabase
     syncStatus('saving', 'Guardando...');
     const saved = await dbPost('comidas', {
-      fecha: viewingDate || todayStr(), momento: time, descripcion: desc,
+      fecha: targetDate, momento: time, descripcion: desc,
       calorias: parsed.calorias, proteina: parsed.proteina,
       puntuacion: parsed.puntuacion, feedback_json: parsed.feedback
     });
 
-    // Update meals array
-    const idx = meals.findIndex(m => m.id === tempMeal.id);
-    if (idx !== -1 && saved[0]) {
-      meals[idx] = { id: saved[0].id, time, desc, cal: parsed.calorias, prot: parsed.proteina, score: parsed.puntuacion, feedback: parsed.feedback };
-    } else if (viewingDate && saved[0]) {
-      // Viewing past day — reload that day's meals
-      const rows = await dbGet('comidas', `fecha=eq.${viewingDate}&order=id.asc`);
+    const newMeal = { id: saved[0].id, time, desc, cal: parsed.calorias, prot: parsed.proteina, score: parsed.puntuacion, feedback: parsed.feedback };
+
+    if (isViewingPast) {
+      // Reload all meals for that past day and show them
+      const rows = await dbGet('comidas', `fecha=eq.${targetDate}&order=id.asc`);
       const dayMeals = rows.map(r => ({ id: r.id, time: r.momento, desc: r.descripcion, cal: r.calorias, prot: r.proteina, score: r.puntuacion, feedback: r.feedback_json || [] }));
       currentViewMeals = dayMeals;
       const todayMeals = [...meals];
@@ -577,21 +581,26 @@ Comida: ${desc}` }] }]
       renderMeals();
       updateSummaryWith(dayMeals);
       renderFeedbackPanel(dayMeals);
+      await updateDayScore(dayMeals, targetDate);
       meals = todayMeals;
+    } else {
+      // Today — replace temp with real
+      const idx = meals.findIndex(m => m.id === tempMeal.id);
+      if (idx !== -1) meals[idx] = newMeal;
+      renderMeals();
+      updateSummary();
+      await updateDayScore(meals, targetDate);
     }
 
-    renderMeals();
-    updateSummary();
-    updateDayScore();
     syncStatus('ok', 'Guardado ✓');
 
   } catch(e) {
-    console.error('addMeal error:', e);
-    // Try to show what Gemini returned if parsing failed
-    console.error('Error message:', e.message);
-    const idx = meals.findIndex(m => m.id === tempMeal.id);
-    if (idx !== -1) { meals[idx].cal = '?'; meals[idx].prot = '?'; meals[idx].score = null; meals[idx].feedback = []; }
-    renderMeals();
+    console.error('addMeal error:', e.message);
+    if (!isViewingPast) {
+      const idx = meals.findIndex(m => m.id === tempMeal.id);
+      if (idx !== -1) meals.splice(idx, 1);
+      renderMeals();
+    }
     syncStatus('error', `Error: ${e.message || 'desconocido'}`);
   }
 
