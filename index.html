@@ -211,6 +211,14 @@ textarea::placeholder { color:#B0A090; }
 .apikey-modal .btn-row { display:flex; gap:8px; }
 .btn-save-key { flex:1; padding:10px; background:var(--terracota); color:white; border:none; border-radius:10px; font-family:'DM Sans',sans-serif; font-size:0.88rem; font-weight:500; cursor:pointer; }
 .btn-cancel-key { padding:10px 16px; background:var(--warm); border:1px solid var(--border); border-radius:10px; font-family:'DM Sans',sans-serif; font-size:0.88rem; cursor:pointer; }
+
+/* RETRY */
+.retry-card { background:#FFF3F3; border:1px solid #F0B0B0; border-radius:14px; padding:14px 16px; display:flex; align-items:center; gap:12px; margin:0 16px; }
+.retry-info { flex:1; }
+.retry-title { font-size:0.82rem; font-weight:500; color:#8A1A1A; }
+.retry-desc { font-size:0.75rem; color:#B05050; margin-top:2px; }
+.retry-btn { padding:7px 14px; background:var(--terracota); color:white; border:none; border-radius:8px; font-family:'DM Sans',sans-serif; font-size:0.78rem; font-weight:500; cursor:pointer; white-space:nowrap; }
+.retry-btn:hover { background:var(--terracota-dark); }
 </style>
 </head>
 <body>
@@ -421,6 +429,7 @@ const MEAL_EMOJIS  = { desayuno:'🌅', 'media-manana':'🍎', comida:'☀️', 
 const MEAL_LABELS  = { desayuno:'Desayuno', 'media-manana':'Media mañana', comida:'Comida', merienda:'Merienda', cena:'Cena', snack:'Snack' };
 
 let meals = [];
+let pendingMeals = []; // failed meals waiting to retry
 let activeFilter = 'all';
 let currentViewMeals = null; // null = today's meals
 let calYear, calMonth;
@@ -601,7 +610,10 @@ Comida: ${desc}${ctx ? '\nContexto: ' + ctx : ''}` }] }]
       if (idx !== -1) meals.splice(idx, 1);
       renderMeals();
     }
-    syncStatus('error', `Error: ${e.message || 'desconocido'}`);
+    // Save to pending queue with all context for retry
+    pendingMeals.push({ id: tempMeal.id, time, desc, ctx, targetDate, isViewingPast });
+    renderRetryCards();
+    syncStatus('error', `Error al guardar — pulsa Reintentar`);
   }
 
   btn.disabled = false; btn.textContent = 'Calcular y añadir ✨';
@@ -1110,6 +1122,97 @@ function saveApiKey() {
 document.getElementById('apikey-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeApiModal();
 });
+
+
+// ── Retry failed meals ────────────────────────────────────────────
+function renderRetryCards() {
+  // Remove existing retry cards
+  document.querySelectorAll('.retry-card').forEach(el => el.remove());
+  if (!pendingMeals.length) return;
+
+  const list = document.getElementById('meals-list');
+  pendingMeals.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'retry-card';
+    card.id = `retry-${p.id}`;
+    card.innerHTML = `
+      <div class="meal-emoji">${MEAL_EMOJIS[p.time]}</div>
+      <div class="retry-info">
+        <div class="retry-title">⚠️ Error al guardar</div>
+        <div class="retry-desc">${MEAL_LABELS[p.time]}: ${p.desc}${p.ctx ? ' · "' + p.ctx + '"' : ''}</div>
+      </div>
+      <button class="retry-btn" onclick="retryMeal('${p.id}')">Reintentar</button>
+    `;
+    list.appendChild(card);
+  });
+}
+
+async function retryMeal(pendingId) {
+  const p = pendingMeals.find(m => m.id === pendingId);
+  if (!p) return;
+
+  const btn = document.querySelector(`#retry-${pendingId} .retry-btn`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  try {
+    const geminiKey = localStorage.getItem('gemini_api_key');
+    if (!geminiKey) throw new Error('No API key');
+
+    const aiResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `Eres una nutricionista cercana, directa y honesta. Perfil usuaria: mujer, gimnasio nivel intermedio, objetivo perder grasa y verse más fina, entrena pesas + funcional 4-5 días/semana, meta proteína 110g/día, meta calorías 1750kcal/día. Tono tranquilo y constructivo, sin dramas ni mayúsculas. Un 10 es casi imposible. Ten en cuenta el contexto que da la usuaria (cumpleaños, post-entreno, hambre, etc.) para ajustar la puntuación y el tono. Genera solo el feedback que sea realmente útil. Cada item: máximo 1-2 frases. Responde SOLO JSON sin backticks ni markdown: {"calorias":int,"proteina":int,"puntuacion":float,"feedback":[{"tipo":"good"|"warn"|"bad","texto":"..."}]}.
+
+Momento: ${MEAL_LABELS[p.time]}
+Comida: ${p.desc}${p.ctx ? '\nContexto: ' + p.ctx : ''}` }] }]
+      })
+    });
+
+    const aiData = await aiResp.json();
+    const aiText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!aiText) throw new Error('Sin respuesta de Gemini');
+    const parsed = JSON.parse(aiText.replace(/```json|```/g,'').trim());
+
+    syncStatus('saving', 'Guardando...');
+    const saved = await dbPost('comidas', {
+      fecha: p.targetDate, momento: p.time, descripcion: p.desc,
+      calorias: parsed.calorias, proteina: parsed.proteina,
+      puntuacion: parsed.puntuacion, feedback_json: parsed.feedback
+    });
+
+    // Remove from pending
+    pendingMeals = pendingMeals.filter(m => m.id !== pendingId);
+
+    const newMeal = { id: saved[0].id, time: p.time, desc: p.desc, cal: parsed.calorias, prot: parsed.proteina, score: parsed.puntuacion, feedback: parsed.feedback };
+
+    if (p.isViewingPast) {
+      const rows = await dbGet('comidas', `fecha=eq.${p.targetDate}&order=id.asc`);
+      const dayMeals = rows.map(r => ({ id: r.id, time: r.momento, desc: r.descripcion, cal: r.calorias, prot: r.proteina, score: r.puntuacion !== null ? parseFloat(r.puntuacion) : null, feedback: r.feedback_json || [] }));
+      currentViewMeals = dayMeals;
+      const todayMeals = [...meals];
+      meals = dayMeals;
+      renderMeals();
+      renderRetryCards();
+      updateSummaryWith(dayMeals);
+      renderFeedbackPanel(dayMeals);
+      await updateDayScore(dayMeals, p.targetDate);
+      meals = todayMeals;
+    } else {
+      meals.push(newMeal);
+      renderMeals();
+      renderRetryCards();
+      updateSummary();
+      await updateDayScore(meals, p.targetDate);
+    }
+
+    syncStatus('ok', 'Guardado ✓');
+
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Reintentar'; }
+    syncStatus('error', `Error: ${e.message || 'desconocido'}`);
+  }
+}
 
 // ── Init ──────────────────────────────────────────────────────────
 async function init() {
