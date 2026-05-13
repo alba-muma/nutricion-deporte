@@ -489,7 +489,7 @@ async function loadToday() {
       desc: r.descripcion,
       cal:  r.calorias,
       prot: r.proteina,
-      score: r.puntuacion,
+      score: r.puntuacion !== null ? parseFloat(r.puntuacion) : null,
       feedback: r.feedback_json || []
     }));
     renderMeals();
@@ -574,7 +574,7 @@ Comida: ${desc}${ctx ? '\nContexto: ' + ctx : ''}` }] }]
     if (isViewingPast) {
       // Reload all meals for that past day and show them
       const rows = await dbGet('comidas', `fecha=eq.${targetDate}&order=id.asc`);
-      const dayMeals = rows.map(r => ({ id: r.id, time: r.momento, desc: r.descripcion, cal: r.calorias, prot: r.proteina, score: r.puntuacion, feedback: r.feedback_json || [] }));
+      const dayMeals = rows.map(r => ({ id: r.id, time: r.momento, desc: r.descripcion, cal: r.calorias, prot: r.proteina, score: r.puntuacion !== null ? parseFloat(r.puntuacion) : null, feedback: r.feedback_json || [] }));
       currentViewMeals = dayMeals;
       const todayMeals = [...meals];
       meals = dayMeals;
@@ -609,22 +609,45 @@ Comida: ${desc}${ctx ? '\nContexto: ' + ctx : ''}` }] }]
 
 // ── Delete meal ───────────────────────────────────────────────────
 async function deleteMeal(id) {
-  meals = meals.filter(m => m.id !== id);
-  renderMeals(); updateSummary();
+  const targetDate = viewingDate || todayStr();
+  const isViewingPast = !!viewingDate;
+
   try {
     await dbDelete('comidas', `id=eq.${id}`);
-    updateDayScore();
+
+    if (isViewingPast) {
+      // Reload past day meals
+      const rows = await dbGet('comidas', `fecha=eq.${targetDate}&order=id.asc`);
+      const dayMeals = rows.map(r => ({ id: r.id, time: r.momento, desc: r.descripcion, cal: r.calorias, prot: r.proteina, score: r.puntuacion !== null ? parseFloat(r.puntuacion) : null, feedback: r.feedback_json || [] }));
+      currentViewMeals = dayMeals;
+      const todayMeals = [...meals];
+      meals = dayMeals;
+      renderMeals();
+      updateSummaryWith(dayMeals);
+      renderFeedbackPanel(dayMeals);
+      await updateDayScore(dayMeals, targetDate);
+      meals = todayMeals;
+    } else {
+      meals = meals.filter(m => m.id !== id);
+      renderMeals();
+      updateSummary();
+      await updateDayScore(meals, targetDate);
+    }
+
     syncStatus('ok', 'Eliminado ✓');
-  } catch(e) { syncStatus('error', 'Error al eliminar'); }
+  } catch(e) {
+    syncStatus('error', 'Error al eliminar');
+  }
 }
 
 // ── Day score ─────────────────────────────────────────────────────
 async function updateDayScore(sourceMeals, fecha) {
   const src = sourceMeals || meals;
   const date = fecha || todayStr();
-  const scored = src.filter(m => m.score !== null && m.score !== undefined);
+  const scored = src.filter(m => m.score !== null && m.score !== undefined && !isNaN(parseFloat(m.score)));
+  const scores = scored.map(m => parseFloat(m.score));
   if (!scored.length) return;
-  const avg = Math.round(scored.reduce((s,m) => s + m.score, 0) / scored.length * 10) / 10;
+  const avg = Math.round(scores.reduce((s,v) => s + v, 0) / scores.length * 10) / 10;
   try {
     await dbUpsert('puntuaciones_dia', { fecha: date, puntuacion_media: avg });
     calScores[date] = avg;
@@ -667,7 +690,7 @@ function renderMeals() {
       </div>
       <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">
         ${!isLoading && meal.score !== null ? `<div class="score-badge ${scoreClass(meal.score)}">${meal.score}</div>` : ''}
-        ${!viewingDate && meal.id ? `<button class='delete-btn' onclick='deleteMeal(${meal.id})'>✕</button>` : ''}
+        ${meal.id ? `<button class='delete-btn' onclick='deleteMeal(${meal.id})'>✕</button>` : ''}
       </div>`;
     list.appendChild(card);
   });
